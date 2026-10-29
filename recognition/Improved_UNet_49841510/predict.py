@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 from dataset import HipMRIDataset
-from modules import UNet
+from modules import UNet, AttentionUNet, ResidualUNet
 import time
 
 def calculate_class_metrics(prediction, target, class_id):
@@ -24,7 +24,7 @@ NUM_CLASSES = 6
 BATCH_SIZE = 6
 TARGET_SIZE = (256, 144)
 IGNORE_INDEX = -100
-
+MODEL_TYPE = "residual"
 MASK_COLORS = [
     "#222222",  # Class 0
     "#4477AA",  # Class 1
@@ -49,11 +49,27 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-CHECKPOINT_PATH = (
-    Path(__file__).resolve().parent
-    / "checkpoints"
-    / "best_unet_baseline_full_trained.pth"
-)
+CHECKPOINT_DIR = Path(__file__).resolve().parent / "checkpoints"
+
+if MODEL_TYPE == "baseline":
+    CHECKPOINT_PATH = (
+        CHECKPOINT_DIR / "best_unet_baseline_full_trained.pth"
+    )
+
+elif MODEL_TYPE == "attention":
+    CHECKPOINT_PATH = (
+        CHECKPOINT_DIR / "best_attention_unet_full.pth"
+    )
+
+elif MODEL_TYPE == "residual":
+    CHECKPOINT_PATH = (
+        CHECKPOINT_DIR / "best_residual_unet_full.pth"
+    )
+
+
+
+else:
+    raise ValueError(f"Unknown model type: {MODEL_TYPE}")
 
 test_dataset = HipMRIDataset(
     DATA_ROOT,
@@ -70,10 +86,25 @@ test_loader = DataLoader(
 
 print("Test samples:", len(test_dataset))
 
-model = UNet(
-    in_channels=1,
-    num_classes=NUM_CLASSES
-).to(device)
+if MODEL_TYPE == "baseline":
+    model = UNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
+
+elif MODEL_TYPE == "attention":
+    model = AttentionUNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
+
+elif MODEL_TYPE == "residual":
+    model = ResidualUNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
+
+model = model.to(device)
 
 
 checkpoint = torch.load(
@@ -90,6 +121,13 @@ model.eval()
 
 print("Loaded checkpoint epoch:", checkpoint["epoch"])
 print("Checkpoint validation loss:", checkpoint["validation_loss"])
+print("Model type:", MODEL_TYPE)
+print("Checkpoint:", CHECKPOINT_PATH)
+print("Loaded checkpoint epoch:", checkpoint["epoch"])
+print("Checkpoint validation loss:", checkpoint["validation_loss"])
+
+if "model_type" in checkpoint:
+    assert checkpoint["model_type"] == MODEL_TYPE
 
 total_tp = [0] * NUM_CLASSES
 total_fp = [0] * NUM_CLASSES
@@ -372,7 +410,7 @@ ax.set_yticks(range(NUM_CLASSES))
 
 ax.set_xlabel("Predicted Class")
 ax.set_ylabel("Ground Truth Class")
-ax.set_title("Baseline U-Net Confusion Matrix")
+ax.set_title(f"{MODEL_TYPE.capitalize()} U-Net Confusion Matrix")
 
 for i in range(NUM_CLASSES):
     for j in range(NUM_CLASSES):
@@ -394,7 +432,7 @@ CM_PATH = (
     Path(__file__).resolve().parent
     / "results"
     / "visualizations"
-    / "baseline_confusion_matrix.png"
+    / f"{MODEL_TYPE}_confusion_matrix.png"
 )
 
 plt.savefig(
@@ -571,7 +609,7 @@ VIS_DIR.mkdir(parents=True, exist_ok=True)
 
 output_path = (
     VIS_DIR
-    / f"baseline_case_{VIS_CASE_ID}_week_{VIS_WEEK}_slice_{VIS_SLICE_ID}.png"
+    / f"{MODEL_TYPE}_case_{VIS_CASE_ID}_week_{VIS_WEEK}_slice_{VIS_SLICE_ID}.png"
 )
 
 plt.savefig(

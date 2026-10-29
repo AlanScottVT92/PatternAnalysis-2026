@@ -4,10 +4,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from pathlib import Path
 from dataset import HipMRIDataset
-from modules import UNet
+from modules import UNet, AttentionUNet, ResidualUNet
 import numpy as np
 import nibabel as nib
 import random
+
 
 def calculate_class_metrics(prediction, target, class_id):
     valid_mask = (target != IGNORE_INDEX)
@@ -20,6 +21,7 @@ def calculate_class_metrics(prediction, target, class_id):
 
     return tp, fp, fn
 # 1. Configuration
+MODEL_TYPE = "residual" ## Switching Standard 2D-UNet/Improved 2D-UNet
 NUM_CLASSES = 6
 BATCH_SIZE = 6
 LEARNING_RATE = 1e-4
@@ -46,14 +48,15 @@ if torch.cuda.is_available():
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-BEST_MODEL_PATH = CHECKPOINT_DIR / "best_unet_baseline_full.pth"
+BEST_MODEL_PATH = CHECKPOINT_DIR / f"best_{MODEL_TYPE}_unet_full.pth" ##Watch the file!!
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-HISTORY_PATH = RESULTS_DIR / "baseline_full_training.csv"
-
+HISTORY_PATH = RESULTS_DIR / f"{MODEL_TYPE}_unet_training.csv" ##Watch the file!!
+NUM_EPOCHS = 30
+MAX_BATCHES = 2
 PATIENCE = 5
 MIN_DELTA = 0.001
 TARGET_SIZE = (256, 144)
@@ -82,15 +85,36 @@ validation_loader = DataLoader(
 )
 
 
-
-
 # 3. Create model, loss function and optimizer
 
 
-model = UNet(
-    in_channels=1,
-    num_classes=NUM_CLASSES
-).to(device)
+if MODEL_TYPE == "baseline":
+    model = UNet(in_channels=1, num_classes=NUM_CLASSES)
+elif MODEL_TYPE == "attention":
+    model = AttentionUNet(in_channels=1, num_classes=NUM_CLASSES)
+elif MODEL_TYPE == "residual":
+    model = ResidualUNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
+else:
+    raise ValueError(f"Unknown model type: {MODEL_TYPE}")
+
+model = model.to(device)
+
+total_params = sum(
+    p.numel() for p in model.parameters()
+)
+
+trainable_params = sum(
+    p.numel()
+    for p in model.parameters()
+    if p.requires_grad
+)
+
+print("Model Type:", MODEL_TYPE)
+print("Total Parameters:", total_params)
+print("Trainable Parameters:", trainable_params)
 
 criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
 
@@ -98,10 +122,19 @@ optimizer = torch.optim.Adam(
     model.parameters(),
     lr=LEARNING_RATE
 )
+print("===== Training Configuration =====")
+print("Model:", MODEL_TYPE)
+print("Device:", device)
+print("Train samples:", len(train_dataset))
+print("Validation samples:", len(validation_dataset))
+print("Batch Size:", BATCH_SIZE)
+print("Learning Rate:", LEARNING_RATE)
+print("Maximum Epochs:", NUM_EPOCHS)
+print("Checkpoint:", BEST_MODEL_PATH)
+print("History:", HISTORY_PATH)
 
 
-NUM_EPOCHS = 30
-MAX_BATCHES = 10
+
 if device.type == "cuda":
     torch.cuda.reset_peak_memory_stats(device)
 
@@ -268,6 +301,21 @@ for epoch in range(NUM_EPOCHS):
         f"Validation Loss = {average_validation_loss:.4f}"
     )
 
+    # Calculate Validation Macro Dice
+    valid_dice = [
+        epoch_dice[f"dice_{c}"]
+        for c in range(NUM_CLASSES)
+        if not np.isnan(epoch_dice[f"dice_{c}"])
+    ]
+
+    macro_dice = (
+        float(np.mean(valid_dice))
+        if valid_dice else float("nan")
+    )
+
+    print(f"Validation Macro Dice: {macro_dice:.4f}")
+
+
     if average_validation_loss < best_validation_loss - MIN_DELTA:
 
         best_validation_loss = average_validation_loss
@@ -281,6 +329,10 @@ for epoch in range(NUM_EPOCHS):
                 "validation_loss": best_validation_loss,
                 "num_classes": NUM_CLASSES,
                 "random_seed": RANDOM_SEED,
+                "model_type": MODEL_TYPE,
+                "learning_rate": LEARNING_RATE,
+                "batch_size": BATCH_SIZE,
+                "target_size": TARGET_SIZE,
             },
             BEST_MODEL_PATH
         )
@@ -304,6 +356,7 @@ for epoch in range(NUM_EPOCHS):
         "epoch": epoch + 1,
         "train_loss": average_loss,
         "val_loss": average_validation_loss,
+        "val_macro_dice": macro_dice,
     }
 
     epoch_record.update(epoch_dice)
@@ -339,20 +392,20 @@ if device.type == "cuda":
     print(f"Peak GPU Memory: {peak_memory:.2f} MiB")
 
 # Use your existing DATA_ROOT
-validation_dataset = HipMRIDataset(DATA_ROOT, "validate")
-test_dataset = HipMRIDataset(DATA_ROOT, "test")
+#validation_dataset = HipMRIDataset(DATA_ROOT, "validate")
+#test_dataset = HipMRIDataset(DATA_ROOT, "test")
 
-for name, dataset in [
-    ("Validation", validation_dataset),
-    ("Test", test_dataset)
-]:
-    labels = set()
+#for name, dataset in [
+#    ("Validation", validation_dataset),
+#    ("Test", test_dataset)
+#]:
+#    labels = set()
 
-    for _, mask_path in dataset.pairs:
-        mask = np.asanyarray(nib.load(str(mask_path)).dataobj)
-        labels.update(np.unique(mask).tolist())
+#    for _, mask_path in dataset.pairs:
+#        mask = np.asanyarray(nib.load(str(mask_path)).dataobj)
+#        labels.update(np.unique(mask).tolist())
 
-    print(f"{name} labels:", sorted(labels))
+#    print(f"{name} labels:", sorted(labels))
 
 
 print("Best Epoch:", best_epoch)
