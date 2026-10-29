@@ -10,7 +10,7 @@ import nibabel as nib
 import random
 
 def calculate_class_metrics(prediction, target, class_id):
-    valid_mask = (target != -100)
+    valid_mask = (target != IGNORE_INDEX)
     pred_mask = (prediction == class_id) & valid_mask
     true_mask = (target == class_id) & valid_mask
 
