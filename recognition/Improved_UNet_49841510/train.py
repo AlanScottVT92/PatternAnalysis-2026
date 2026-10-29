@@ -10,8 +10,9 @@ import nibabel as nib
 import random
 
 def calculate_class_metrics(prediction, target, class_id):
-    pred_mask = (prediction == class_id)
-    true_mask = (target == class_id)
+    valid_mask = (target != -100)
+    pred_mask = (prediction == class_id) & valid_mask
+    true_mask = (target == class_id) & valid_mask
 
     tp = (pred_mask & true_mask).sum().item()
     fp = (pred_mask & ~true_mask).sum().item()
@@ -55,9 +56,11 @@ HISTORY_PATH = RESULTS_DIR / "baseline_full_training.csv"
 
 PATIENCE = 5
 MIN_DELTA = 0.001
+TARGET_SIZE = (256, 144)
+IGNORE_INDEX = -100
 
 # 2. Load dataset
-train_dataset = HipMRIDataset(DATA_ROOT, "train")
+train_dataset = HipMRIDataset(DATA_ROOT, "train", target_size=TARGET_SIZE)
 
 train_loader = DataLoader(
     train_dataset,
@@ -68,7 +71,7 @@ train_loader = DataLoader(
 validation_dataset = HipMRIDataset(
     DATA_ROOT,
     "validate",
-    target_size=(256, 128)
+    target_size=TARGET_SIZE
 )
 
 validation_loader = DataLoader(
@@ -89,7 +92,7 @@ model = UNet(
     num_classes=NUM_CLASSES
 ).to(device)
 
-criterion = nn.CrossEntropyLoss()
+criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
 
 optimizer = torch.optim.Adam(
     model.parameters(),
@@ -97,7 +100,7 @@ optimizer = torch.optim.Adam(
 )
 
 
-NUM_EPOCHS = 3
+NUM_EPOCHS = 30
 MAX_BATCHES = 10
 if device.type == "cuda":
     torch.cuda.reset_peak_memory_stats(device)
@@ -127,13 +130,14 @@ for epoch in range(NUM_EPOCHS):
         #    break
 
         # 1. Check mask labels
-        assert images.shape[1:] == (1, 256, 128)
-        assert masks.shape[1:] == (256, 128)
+        assert images.shape[1:] == (1, *TARGET_SIZE)
+        assert masks.shape[1:] == TARGET_SIZE
 
-
-        assert masks.min().item() >= 0
-        assert masks.max().item() < NUM_CLASSES
-
+        valid_pixels = masks != IGNORE_INDEX
+        valid_labels = masks[valid_pixels]
+        assert valid_labels.numel() > 0
+        assert valid_labels.min().item() >= 0
+        assert valid_labels.max().item() < NUM_CLASSES
         # 2. Move data to GPU
         images = images.to(device)
         masks = masks.to(device)
@@ -175,9 +179,13 @@ for epoch in range(NUM_EPOCHS):
 
         for images, masks in validation_loader:
             
-            # Check mask label range
-            assert masks.min().item() >= 0
-            assert masks.max().item() < NUM_CLASSES
+            # Check valid mask labels, excluding padding
+            valid_pixels = masks != IGNORE_INDEX
+            valid_labels = masks[valid_pixels]
+
+            assert valid_labels.numel() > 0
+            assert valid_labels.min().item() >= 0
+            assert valid_labels.max().item() < NUM_CLASSES
 
             # Move tensors to GPU
             images = images.to(device)
@@ -200,6 +208,24 @@ for epoch in range(NUM_EPOCHS):
 
             validation_loss += loss.item()
             validation_count += 1
+
+
+
+    valid_pixel_count = sum(
+        total_tp[c] + total_fn[c]
+        for c in range(NUM_CLASSES)
+    )
+
+    print("Validation valid pixels:", valid_pixel_count)
+
+    predicted_pixel_count = sum(
+        total_tp[c] + total_fp[c]
+        for c in range(NUM_CLASSES)
+    )
+
+    print("Validation predicted pixels:", predicted_pixel_count)
+
+
     epoch_dice = {}
     epoch_iou = {}
     for c in range(NUM_CLASSES):
@@ -246,7 +272,7 @@ for epoch in range(NUM_EPOCHS):
 
         best_validation_loss = average_validation_loss
         best_epoch = epoch + 1
-
+        no_improvement_count = 0
         torch.save(
             {
                 "epoch": best_epoch,

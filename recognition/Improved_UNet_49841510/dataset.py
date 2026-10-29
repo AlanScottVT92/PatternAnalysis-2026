@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class HipMRIDataset(Dataset):
 
-    def __init__(self, root, split, target_size=(256, 128)):
+    def __init__(self, root, split, target_size=(256, 144)):
         self.root = Path(root)
         self.split = split
         self.target_size = target_size
@@ -64,19 +64,53 @@ class HipMRIDataset(Dataset):
         image = torch.from_numpy(image).unsqueeze(0)
         mask = torch.from_numpy(mask.astype(np.int64)).unsqueeze(0)
 
-        # 5. Resize image and mask
-        image = F.interpolate(
-            image.unsqueeze(0),
-            size=self.target_size,
-            mode="bilinear",
-            align_corners=False
-        ).squeeze(0)
+        # 5. Pad image and mask to target size
+        height, width = image.shape[-2:]
 
-        mask = F.interpolate(
-            mask.unsqueeze(0).float(),
-            size=self.target_size,
-            mode="nearest"
-        ).squeeze(0).squeeze(0).long()
+        target_height, target_width = self.target_size
+
+        # Calculate required padding
+        pad_height = target_height - height
+        pad_width = target_width - width
+
+        if pad_height < 0 or pad_width < 0:
+            raise ValueError(
+                f"Image {image_path.name} is larger than target size: "
+                f"{(height, width)} vs {self.target_size}"
+            )
+
+        # Split padding equally between opposite sides
+        pad_top = pad_height // 2
+        pad_bottom = pad_height - pad_top
+
+        pad_left = pad_width // 2
+        pad_right = pad_width - pad_left
+
+        padding = (
+            pad_left,
+            pad_right,
+            pad_top,
+            pad_bottom
+        )
+
+        # Pad MRI with normalized intensity 0
+        image = F.pad(
+            image,
+            padding,
+            mode="constant",
+            value=0
+        )
+
+        # Pad segmentation mask with ignore label
+        mask = F.pad(
+            mask,
+            padding,
+            mode="constant",
+            value=-100
+        )
+
+        # Remove mask channel dimension
+        mask = mask.squeeze(0)
 
         return image, mask
 
@@ -109,6 +143,22 @@ if __name__ == "__main__":
     print("Image std:", image.std().item())
 
     print("Mask labels:", torch.unique(mask))
+
+    # Check a sample with original width 144
+    special_index = None
+
+    for i, (image_path, _) in enumerate(train_dataset.pairs):
+        if nib.load(str(image_path)).shape == (256, 144):
+            special_index = i
+            break
+
+    if special_index is not None:
+        special_image, special_mask = train_dataset[special_index]
+
+        print("===== Special Sample =====")
+        print("Image shape:", special_image.shape)
+        print("Mask shape:", special_mask.shape)
+        print("Mask labels:", torch.unique(special_mask))
 
     train_loader = DataLoader(
         train_dataset,
