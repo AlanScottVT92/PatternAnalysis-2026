@@ -1,3 +1,4 @@
+import csv
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -44,7 +45,16 @@ if torch.cuda.is_available():
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-BEST_MODEL_PATH = CHECKPOINT_DIR / "best_unet_baseline.pth"
+BEST_MODEL_PATH = CHECKPOINT_DIR / "best_unet_baseline_full.pth"
+
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+HISTORY_PATH = RESULTS_DIR / "baseline_full_training.csv"
+
+PATIENCE = 5
+MIN_DELTA = 0.001
 
 # 2. Load dataset
 train_dataset = HipMRIDataset(DATA_ROOT, "train")
@@ -83,12 +93,12 @@ criterion = nn.CrossEntropyLoss()
 
 optimizer = torch.optim.Adam(
     model.parameters(),
-    lr=1e-4
+    lr=LEARNING_RATE
 )
 
 
 NUM_EPOCHS = 3
-MAX_BATCHES = 100
+MAX_BATCHES = 10
 if device.type == "cuda":
     torch.cuda.reset_peak_memory_stats(device)
 
@@ -102,6 +112,9 @@ print("Unique labels:", torch.unique(val_masks))
 
 best_validation_loss = float("inf")
 best_epoch = 0
+history = []
+
+no_improvement_count = 0
 for epoch in range(NUM_EPOCHS):
 
     model.train()
@@ -110,8 +123,8 @@ for epoch in range(NUM_EPOCHS):
 
     for batch_idx, (images, masks) in enumerate(train_loader):
 
-        if batch_idx >= MAX_BATCHES:
-            break
+        #if batch_idx >= MAX_BATCHES:
+        #    break
 
         # 1. Check mask labels
         assert images.shape[1:] == (1, 256, 128)
@@ -187,7 +200,8 @@ for epoch in range(NUM_EPOCHS):
 
             validation_loss += loss.item()
             validation_count += 1
-
+    epoch_dice = {}
+    epoch_iou = {}
     for c in range(NUM_CLASSES):
         tp = total_tp[c]
         fp = total_fp[c]
@@ -209,10 +223,14 @@ for epoch in range(NUM_EPOCHS):
             if denominator_dice > 0 else float("nan")
         )
 
+
         iou = (
             tp / denominator_iou
             if denominator_iou > 0 else float("nan")
         )
+        epoch_dice[f"dice_{c}"] = dice
+
+        epoch_iou[f"iou_{c}"] = iou
 
         print(f"Class {c}: Dice = {dice:.4f}, IoU = {iou:.4f}")
 
@@ -224,28 +242,65 @@ for epoch in range(NUM_EPOCHS):
         f"Validation Loss = {average_validation_loss:.4f}"
     )
 
-if average_validation_loss < best_validation_loss:
+    if average_validation_loss < best_validation_loss - MIN_DELTA:
 
-    best_validation_loss = average_validation_loss
-    best_epoch = epoch + 1
+        best_validation_loss = average_validation_loss
+        best_epoch = epoch + 1
 
-    torch.save(
-        {
-            "epoch": best_epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "validation_loss": best_validation_loss,
-            "num_classes": NUM_CLASSES,
-            "random_seed": RANDOM_SEED,
-        },
-        BEST_MODEL_PATH
-    )
+        torch.save(
+            {
+                "epoch": best_epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "validation_loss": best_validation_loss,
+                "num_classes": NUM_CLASSES,
+                "random_seed": RANDOM_SEED,
+            },
+            BEST_MODEL_PATH
+        )
 
-    print(
-        f"Best model saved! "
-        f"Epoch = {best_epoch}, "
-        f"Validation Loss = {best_validation_loss:.4f}"
-    )
+        print(
+            f"Best model saved! "
+            f"Epoch = {best_epoch}, "
+            f"Validation Loss = {best_validation_loss:.4f}"
+        )
+
+    else:
+        no_improvement_count += 1
+
+        print(
+            f"No significant improvement: "
+            f"{no_improvement_count}/{PATIENCE}"
+        )
+
+
+    epoch_record = {
+        "epoch": epoch + 1,
+        "train_loss": average_loss,
+        "val_loss": average_validation_loss,
+    }
+
+    epoch_record.update(epoch_dice)
+    epoch_record.update(epoch_iou)
+
+    history.append(epoch_record)
+
+
+    with open(HISTORY_PATH, "w", newline="", encoding="utf-8") as f:
+
+        writer = csv.DictWriter(
+            f,
+            fieldnames=history[0].keys()
+        )
+
+        writer.writeheader()
+        writer.writerows(history)
+    if no_improvement_count >= PATIENCE:
+        print(
+            f"Early stopping triggered at epoch {epoch + 1}. "
+            f"Best epoch: {best_epoch}"
+        )
+        break
 
 if device.type == "cuda":
     torch.cuda.synchronize(device)
@@ -277,3 +332,7 @@ for name, dataset in [
 print("Best Epoch:", best_epoch)
 print("Best Validation Loss:", best_validation_loss)
 print("Checkpoint exists:", BEST_MODEL_PATH.is_file())
+
+print("History file exists:", HISTORY_PATH.is_file())
+print("Recorded epochs:", len(history))
+print("History path:", HISTORY_PATH)
