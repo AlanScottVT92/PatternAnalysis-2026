@@ -68,7 +68,7 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=1, num_classes=4):
+    def __init__(self, in_channels=1, num_classes=6):
         super().__init__()
 
         self.inc = DoubleConv(in_channels, 16)

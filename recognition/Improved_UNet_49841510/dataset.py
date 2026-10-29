@@ -2,14 +2,15 @@ from pathlib import Path
 import numpy as np
 import nibabel as nib
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+import torch.nn.functional as F
 
 class HipMRIDataset(Dataset):
 
-    def __init__(self, root, split):
+    def __init__(self, root, split, target_size=(256, 128)):
         self.root = Path(root)
         self.split = split
-
+        self.target_size = target_size
         # Select MRI and segmentation directories
         self.image_dir = self.root / f"keras_slices_{split}"
         self.mask_dir = self.root / f"keras_slices_seg_{split}"
@@ -41,19 +42,41 @@ class HipMRIDataset(Dataset):
     def __getitem__(self, index):
         image_path, mask_path = self.pairs[index]
 
+        # 1. Load MRI and mask
         image = nib.load(str(image_path)).get_fdata()
         mask = nib.load(str(mask_path)).get_fdata()
+
+        # 2. Validate original spatial alignment
+        if image.shape != mask.shape:
+            raise ValueError(
+                f"Image-mask shape mismatch: {image_path.name}"
+            )
+
+        # 3. Normalize MRI
         image = image.astype(np.float32)
 
         mean = image.mean()
         std = image.std()
 
         image = (image - mean) / (std + 1e-8)
-        image = torch.from_numpy(image).unsqueeze(0)
 
-        mask = torch.from_numpy(
-            mask.astype(np.int64)
-        )
+        # 4. Convert to tensors
+        image = torch.from_numpy(image).unsqueeze(0)
+        mask = torch.from_numpy(mask.astype(np.int64)).unsqueeze(0)
+
+        # 5. Resize image and mask
+        image = F.interpolate(
+            image.unsqueeze(0),
+            size=self.target_size,
+            mode="bilinear",
+            align_corners=False
+        ).squeeze(0)
+
+        mask = F.interpolate(
+            mask.unsqueeze(0).float(),
+            size=self.target_size,
+            mode="nearest"
+        ).squeeze(0).squeeze(0).long()
 
         return image, mask
 
@@ -86,3 +109,27 @@ if __name__ == "__main__":
     print("Image std:", image.std().item())
 
     print("Mask labels:", torch.unique(mask))
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=4,
+        shuffle=True,
+        num_workers=0
+    )
+
+    images, masks = next(iter(train_loader))
+
+    print("===== First Batch =====")
+    print("Images:", images.shape)
+    print("Masks:", masks.shape)
+    print("Image dtype:", images.dtype)
+    print("Mask dtype:", masks.dtype)
+
+    all_labels = set()
+
+    for i in range(len(train_dataset)):
+        _, mask = train_dataset[i]
+
+        all_labels.update(torch.unique(mask).tolist())
+
+    print("Training set labels:", sorted(all_labels))
