@@ -234,6 +234,7 @@ The baseline and architectural comparison experiments are trained using pixel-wi
 For each valid pixel, the loss penalises the model when the predicted probability assigned to the ground-truth class is low.
 
 The loss can be expressed as:
+
 $$
 \mathcal{L}_{CE}
 =
@@ -250,6 +251,7 @@ The training dataset exhibits substantial class imbalance, with Body (Class 1) a
 An additional experiment uses a Residual U-Net with class-weighted CrossEntropyLoss to investigate whether increasing the contribution of infrequent classes improves their segmentation performance.
 
 The class weights are calculated from training-set class frequencies using an inverse square-root weighting strategy:
+
 $$
 \mathcal{L}_{WCE}
 =
