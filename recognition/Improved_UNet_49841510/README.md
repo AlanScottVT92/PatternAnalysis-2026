@@ -249,7 +249,7 @@ The class weights are calculated from training-set class frequencies using an in
 
 $$\mathcal{L}_{WCE}=-\frac{\sum_{i=1}^{N} w_{y_i}\log(p_{i,y_i})}{\sum_{i=1}^{N} w_{y_i}}$$
 
- where $$ w_{y_i} $$ is the weight corresponding to the pixel's true class.
+ where $$w_{y_i}$$ is the weight corresponding to the pixel's true class.
 
 The resulting weights for Classes 0–5 are approximately:[0.3159, 0.1598, 0.3714, 0.9422, 2.1982, 2.0125]
 
