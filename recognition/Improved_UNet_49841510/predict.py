@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 from dataset import HipMRIDataset
-from modules import UNet, AttentionUNet, ResidualUNet
+from modules import UNet, AttentionUNet, ResidualUNet, ResidualAttentionUNet
 import time
 
 def calculate_class_metrics(prediction, target, class_id):
@@ -25,6 +25,7 @@ BATCH_SIZE = 6
 TARGET_SIZE = (256, 144)
 IGNORE_INDEX = -100
 MODEL_TYPE = "residual"
+LOSS_TYPE = "weighted_ce"
 MASK_COLORS = [
     "#222222",  # Class 0
     "#4477AA",  # Class 1
@@ -61,11 +62,21 @@ elif MODEL_TYPE == "attention":
         CHECKPOINT_DIR / "best_attention_unet_full.pth"
     )
 
+elif MODEL_TYPE == "residual" and LOSS_TYPE == "weighted_ce":
+    CHECKPOINT_PATH = (
+        CHECKPOINT_DIR / "best_residual_weighted_ce_unet_full.pth"
+    )
+
+
+
 elif MODEL_TYPE == "residual":
     CHECKPOINT_PATH = (
         CHECKPOINT_DIR / "best_residual_unet_full.pth"
     )
-
+elif MODEL_TYPE == "residual_attention":
+    CHECKPOINT_PATH = (
+        CHECKPOINT_DIR / "best_residual_attention_unet_full.pth"
+    )
 
 
 else:
@@ -100,6 +111,12 @@ elif MODEL_TYPE == "attention":
 
 elif MODEL_TYPE == "residual":
     model = ResidualUNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
+
+elif MODEL_TYPE == "residual_attention":
+    model = ResidualAttentionUNet(
         in_channels=1,
         num_classes=NUM_CLASSES
     )
@@ -427,12 +444,12 @@ for i in range(NUM_CLASSES):
 fig.colorbar(im, ax=ax, label="Fraction of True Class")
 
 plt.tight_layout()
-
+EXPERIMENT_NAME = f"{MODEL_TYPE}_{LOSS_TYPE}"
 CM_PATH = (
     Path(__file__).resolve().parent
     / "results"
     / "visualizations"
-    / f"{MODEL_TYPE}_confusion_matrix.png"
+    / f"{EXPERIMENT_NAME}_confusion_matrix.png"
 )
 
 plt.savefig(

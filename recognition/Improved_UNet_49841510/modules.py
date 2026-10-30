@@ -319,6 +319,74 @@ class ResidualUNet(nn.Module):
 
         return self.outc(x)
 
+class ResidualAttentionUp(nn.Module):
+
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super().__init__()
+        self.up = nn.Upsample(
+            scale_factor=2,
+            mode="bilinear",
+            align_corners=True
+        )
+        self.attention = AttentionGate(
+            skip_channels=skip_channels,
+            gating_channels=in_channels,
+            inter_channels=max(1, skip_channels // 2)
+        )
+        self.conv = ResidualBlock(
+            in_channels + skip_channels,
+            out_channels
+        )
+
+    def forward(self, x1, x2):
+
+        # Upsample decoder feature
+        x1 = self.up(x1)
+
+        # Apply attention to encoder skip feature
+        x2 = self.attention(x2, x1)
+
+        # Concatenate two features
+        x = torch.cat([x2, x1], dim=1)
+
+        # Residual feature extraction
+        return self.conv(x)
+
+class ResidualAttentionUNet(nn.Module):
+
+    def __init__(self, in_channels=1, num_classes=6):
+        super().__init__()
+
+        self.inc = ResidualBlock(in_channels, 16)
+
+        self.down1 = ResidualDown(16, 32)
+        self.down2 = ResidualDown(32, 64)
+        self.down3 = ResidualDown(64, 128)
+        self.down4 = ResidualDown(128, 256)
+        self.up1 = ResidualAttentionUp(256, 128, 128)
+        self.up2 = ResidualAttentionUp(128, 64, 64)
+        self.up3 = ResidualAttentionUp(64, 32, 32)
+        self.up4 = ResidualAttentionUp(32, 16, 16)
+
+        self.outc = OutConv(16, num_classes)
+
+    def forward(self, x):
+
+        # Encoder
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+
+        # Decoder with residual blocks and attention gates
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+
+        return self.outc(x)
+
 if __name__ == "__main__":
     block = DoubleConv(1, 16)
 
@@ -501,4 +569,57 @@ if __name__ == "__main__":
     print(
         "Shortcut gradient exists:",
         model.down1.conv.shortcut.weight.grad is not None
+    )
+
+    test_up = ResidualAttentionUp(
+        in_channels=256,
+        skip_channels=128,
+        out_channels=128
+    )
+
+    x1 = torch.randn(2, 256, 16, 9)
+    x2 = torch.randn(2, 128, 32, 18)
+
+    output = test_up(x1, x2)
+
+    print("Decoder input:", x1.shape)
+    print("Encoder skip:", x2.shape)
+    print("ResidualAttentionUp output:", output.shape)
+
+    model = ResidualAttentionUNet(
+        in_channels=1,
+        num_classes=6
+    )
+
+    x = torch.randn(2, 1, 256, 144)
+
+    with torch.no_grad():
+        logits = model(x)
+
+    print("Input:", x.shape)
+    print("Residual Attention U-Net output:", logits.shape)
+
+    model.train()
+    model.zero_grad()
+
+    x = torch.randn(2, 1, 256, 144)
+
+    logits = model(x)
+
+    loss = logits.square().mean()
+    loss.backward()
+
+    print(
+        "Residual gradient exists:",
+        model.down1.conv.conv1.weight.grad is not None
+    )
+
+    print(
+        "Shortcut gradient exists:",
+        model.down1.conv.shortcut.weight.grad is not None
+    )
+
+    print(
+        "Attention gradient exists:",
+        model.up1.attention.W_x.weight.grad is not None
     )

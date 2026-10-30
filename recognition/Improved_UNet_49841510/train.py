@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from pathlib import Path
 from dataset import HipMRIDataset
-from modules import UNet, AttentionUNet, ResidualUNet
+from modules import UNet, AttentionUNet, ResidualUNet, ResidualAttentionUNet
 import numpy as np
 import nibabel as nib
 import random
@@ -25,6 +25,7 @@ MODEL_TYPE = "residual" ## Switching Standard 2D-UNet/Improved 2D-UNet
 NUM_CLASSES = 6
 BATCH_SIZE = 6
 LEARNING_RATE = 1e-4
+LOSS_TYPE = "weighted_ce"
 DATA_ROOT = Path(
         r"D:\academic\Semester 2 2026\COMP3710"
         r"\data_for_report(private)\keras_slices_data"
@@ -33,6 +34,17 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 RANDOM_SEED = 42
+TRAIN_CLASS_COUNTS = torch.tensor(
+    [
+        64897313,
+        253682431,
+        46951538,
+        7296009,
+        1340454,
+        1599295
+    ],
+    dtype=torch.float32
+)
 
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
@@ -47,14 +59,14 @@ if torch.cuda.is_available():
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-
-BEST_MODEL_PATH = CHECKPOINT_DIR / f"best_{MODEL_TYPE}_unet_full.pth" ##Watch the file!!
+EXPERIMENT_NAME = f"{MODEL_TYPE}_{LOSS_TYPE}"
+BEST_MODEL_PATH = CHECKPOINT_DIR / f"best_{EXPERIMENT_NAME}_unet_full.pth" ##Watch the file!!
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-HISTORY_PATH = RESULTS_DIR / f"{MODEL_TYPE}_unet_training.csv" ##Watch the file!!
+HISTORY_PATH = RESULTS_DIR / f"{EXPERIMENT_NAME}_unet_training.csv" ##Watch the file!!
 NUM_EPOCHS = 30
 MAX_BATCHES = 2
 PATIENCE = 5
@@ -97,6 +109,12 @@ elif MODEL_TYPE == "residual":
         in_channels=1,
         num_classes=NUM_CLASSES
     )
+
+elif MODEL_TYPE == "residual_attention":
+    model = ResidualAttentionUNet(
+        in_channels=1,
+        num_classes=NUM_CLASSES
+    )
 else:
     raise ValueError(f"Unknown model type: {MODEL_TYPE}")
 
@@ -116,7 +134,31 @@ print("Model Type:", MODEL_TYPE)
 print("Total Parameters:", total_params)
 print("Trainable Parameters:", trainable_params)
 
-criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+if LOSS_TYPE == "weighted_ce":
+
+    frequencies = (
+        TRAIN_CLASS_COUNTS / TRAIN_CLASS_COUNTS.sum()
+    )
+
+    class_weights = 1.0 / torch.sqrt(frequencies)
+
+    class_weights = (
+        class_weights / class_weights.mean()
+    )
+
+    class_weights = class_weights.to(device)
+
+    criterion = torch.nn.CrossEntropyLoss(
+        weight=class_weights,
+        ignore_index=-100
+    )
+
+    print("Class weights:", class_weights.cpu())
+
+else:
+    criterion = torch.nn.CrossEntropyLoss(
+        ignore_index=-100
+    )
 
 optimizer = torch.optim.Adam(
     model.parameters(),
