@@ -235,12 +235,7 @@ For each valid pixel, the loss penalises the model when the predicted probabilit
 
 The loss can be expressed as:
 
-$$
-\mathcal{L}_{CE}
-=
--\frac{1}{N}
-\sum_{i=1}^{N}\log(p_{i,y_i})
-$$
+$$\mathcal{L}_{CE}=-\frac{1}{N}\sum_{i=1}^{N}\log(p_{i,y_i})$$
 
  where "N" is the number of valid pixels, "p(i,yi)" is is the predicted probability of the correct class for pixel "i", and padded pixels with the label -100 are excluded.
 
@@ -252,15 +247,7 @@ An additional experiment uses a Residual U-Net with class-weighted CrossEntropyL
 
 The class weights are calculated from training-set class frequencies using an inverse square-root weighting strategy:
 
-$$
-\mathcal{L}_{WCE}
-=
--\frac{
-\sum_{i=1}^{N} w_{y_i}\log(p_{i,y_i})
-}{
-\sum_{i=1}^{N} w_{y_i}
-}
-$$
+$$\mathcal{L}_{WCE}=-\frac{\sum_{i=1}^{N} w_{y_i}\log(p_{i,y_i})}{\sum_{i=1}^{N} w_{y_i}}$$
 
  where $$ w_{y_i} $$ is the weight corresponding to the pixel's true class.
 
