@@ -7,6 +7,7 @@ import numpy as np
 from dataset import HipMRIDataset
 from modules import UNet, AttentionUNet, ResidualUNet, ResidualAttentionUNet
 import time
+import csv
 
 def calculate_class_metrics(prediction, target, class_id):
     valid_mask = target != IGNORE_INDEX
@@ -39,7 +40,7 @@ mask_cmap = ListedColormap(MASK_COLORS)
 
 VIS_CASE_ID = "042"
 VIS_WEEK = 0
-VIS_SLICE_ID = 37
+VIS_SLICE_ID = 13
 
 DATA_ROOT = Path(
     r"D:\academic\Semester 2 2026\COMP3710"
@@ -464,15 +465,13 @@ plt.show()
 
 print("\n===== Worst Per-Slice Dice =====")
 
-TARGET_CASE = "042"
-TARGET_CLASS = 4
+TARGET_CLASS = 5  # Prostate
 
 filtered_results = [
     record
     for record in slice_results
-    if record["case_id"] == TARGET_CASE
-    and record["class_id"] == TARGET_CLASS
-    and record["ground_truth_pixels"] > 0
+    if record["class_id"] == TARGET_CLASS
+    and record["ground_truth_pixels"] >= 50
     and not np.isnan(record["dice"])
 ]
 
@@ -483,7 +482,7 @@ sorted_results = sorted(
 
 print("Matched slices:", len(filtered_results))
 
-for record in sorted_results[:5]:
+for record in sorted_results[:10]:
     print(
         f"Case {record['case_id']}, "
         f"Week {record['week']}, "
@@ -492,6 +491,23 @@ for record in sorted_results[:5]:
         f"GT Pixels = {record['ground_truth_pixels']}, "
         f"Pred Pixels = {record['predicted_pixels']}"
     )
+if not sorted_results:
+    raise ValueError(
+        f"No valid failure cases found for Class {TARGET_CLASS}"
+    )
+
+worst_case = sorted_results[3]
+
+VIS_CASE_ID = worst_case["case_id"]
+VIS_WEEK = worst_case["week"]
+VIS_SLICE_ID = worst_case["slice_id"]
+
+print(
+    "\nSelected failure case:",
+    VIS_CASE_ID,
+    VIS_WEEK,
+    VIS_SLICE_ID
+)
 print("\n===== Mean Per-Case Dice =====")
 
 for c in range(NUM_CLASSES):
@@ -562,7 +578,7 @@ image_np = image.squeeze(0).cpu().numpy()
 mask_np = mask.cpu().numpy()
 prediction_np = prediction.squeeze(0).cpu().numpy()
 
-target_class = 4
+target_class = TARGET_CLASS
 
 true_region = mask_np == target_class
 
@@ -626,7 +642,7 @@ VIS_DIR.mkdir(parents=True, exist_ok=True)
 
 output_path = (
     VIS_DIR
-    / f"{MODEL_TYPE}_case_{VIS_CASE_ID}_week_{VIS_WEEK}_slice_{VIS_SLICE_ID}.png"
+    / f"{MODEL_TYPE}_{LOSS_TYPE}_case_{VIS_CASE_ID}_week_{VIS_WEEK}_slice_{VIS_SLICE_ID}.png"
 )
 
 plt.savefig(
@@ -638,3 +654,30 @@ plt.savefig(
 print("Visualization saved:", output_path)
 plt.show()
 print("Total per-slice records:", len(slice_results))
+
+EXPERIMENT_NAME = f"{MODEL_TYPE}_{LOSS_TYPE}"
+
+CSV_PATH = (
+    Path(__file__).resolve().parent
+    / "results"
+    / f"{EXPERIMENT_NAME}_slice_metrics.csv"
+)
+
+with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(
+        f,
+        fieldnames=[
+            "case_id",
+            "week",
+            "slice_id",
+            "class_id",
+            "dice",
+            "ground_truth_pixels",
+            "predicted_pixels"
+        ]
+    )
+
+    writer.writeheader()
+    writer.writerows(slice_results)
+
+print("Slice metrics saved:", CSV_PATH)
