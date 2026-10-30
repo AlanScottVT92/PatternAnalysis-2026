@@ -6,7 +6,7 @@
 
 Accurate anatomical segmentation of magnetic resonance imaging(MRI) is significant for medical image analysis and radiotherapy planning.Identifying anatomical structures and their boundaries can support clinical specialists in preparing and reviewing treatment plans. However, manual segmentation can be time-consuming, and automated approaches may struggle with small anatomical regions, ambiguous boundaries, and substantial differences in class frequency.
 
-The HipHRI dataset provides annotated MRI slices for multi-class semantic segmentation.A major challenge is achieving reliable segmentation across different anatomical regions, particularly when less frequent classes occupy only a small proportion of the image. 
+The HipMRI dataset provides annotated MRI slices for multi-class semantic segmentation.A major challenge is achieving reliable segmentation across different anatomical regions, particularly when less frequent classes occupy only a small proportion of the image. 
 
 ### 1.2 Project Objective
 
@@ -26,7 +26,7 @@ All models would be evaluated and compared using per-class Dice Similarity Coeff
 
 The main research question of this report is:
 
-** Could an improved 2D U-Net achieve a more accurate and reliable anatomial segmentation than a Standard 2D U-Net, particularly for small regions and difficult boundaries, without introducing excessive computational overhead? **
+**Could an improved 2D U-Net achieve a more accurate and reliable anatomical segmentation than a Standard 2D U-Net, particularly for small regions and difficult boundaries, without introducing excessive computational overhead?**
 
 To investigate this question, this project compares segmentation accuracy and inference efficiency across the proposed models, examines class-specific errors, and analyses representative failure cases where global evaluation metrics may conceal local segmentation problems.
 
@@ -445,7 +445,7 @@ Computational efficiency was assessed using model parameter counts, GPU inferenc
 The benchmark was conducted on an NVIDIA GeForce RTX 4060 Laptop GPU using the same test dataset.
 
 |Model|Parameters|Inference Latency (ms/image)|Peak GPU Memory (MiB)|
-|---|---|---|---|
+|---|---|---:|:---:|
 |Standard 2D U-Net|1962422|2.473|Approximately 209–215|
 |Attention 2D U-Net|1995426|5.320|229.04|
 |Residual 2D U-Net|2071974|2.860|232.82|
@@ -530,7 +530,6 @@ The error is especially relevant because Rectum and Prostate are distinct anatom
 
 The result suggests that the model had difficulty distinguishing the local anatomical features associated with these structures in this particular slice.
 
-Visual evidence: Insert the ground-truth mask, Residual U-Net prediction, and an overlay highlighting the misclassified Rectum region.
 
 ### 7.3 Failure Case 2: Differences Between Model Predictions
 
@@ -579,8 +578,9 @@ The observed reduction in Dice is consistent with a precision–recall trade-off
 The corresponding confusion matrices were generated and saved as:
 
 ![residual_ce_confusion](results/visualizations/residual_confusion_matrix.png)
+*(Residual 2D U-Net Confusion Matrix)*
 ![residual_weighted_ce_confusion](results/visualizations/residual_weighted_ce_confusion_matrix.png)
-
+*(Residual 2D U-Net + Class-Weighted Cross-Entropy Matrix)*
 The matrices provide complementary evidence for changes in the distribution of segmentation errors. Because the visualisations are row-normalised, the absolute pixel counts in the table above should be used when comparing the number of misclassified pixels.
 
 ### 7.5 Failure Case 4: Complete Prostate Omission
@@ -816,7 +816,7 @@ MRI images and corresponding masks must retain their original file naming conven
 case_004_week_0_slice_0.nii.gz
 seg_004_week_0_slice_0.nii.gz
 
-Before running training or evaluation, manually update DATA_ROOT in both train.py and predict.py to the location of keras_slices_data on the local computer.
+Before running training or evaluation, manually update `DATA_ROOT` in both train.py and predict.py to the location of keras_slices_data on the local computer.
 For example: 
 **DATA_ROOT = Path(r"D:\path\to\keras_slices_data")**
 
@@ -824,7 +824,7 @@ The default dataset loader performs image–mask pairing, Z-score normalisation,
 
 ### 9.5 Model Training
 
-Training is performed by running: train.py
+Training is performed by running: python `train.py`
 
 The current implementation uses configuration variables defined directly near the beginning of train.py, rather than command-line arguments.
 
@@ -832,9 +832,9 @@ Before starting an experiment, manually check:
 
 |Configuration|Description|Experimental Setting|
 |---|---|---|
-|MODEL_TYPE|Selects model architecture|See supported values below|
-|LOSS_TYPE|Selects training loss|"baseline"/"attention"/"residual"/"residual_attention"|
-|DATA_ROOT|Local dataset directory|"ce"/"weighted_ce"|
+|MODEL_TYPE|Selects model architecture|"baseline"/"attention"/"residual"/"residual_attention"|
+|LOSS_TYPE|Selects training loss|"ce"/"weighted_ce"|
+|DATA_ROOT|Local dataset directory|Proper path to the local HipMRI dataset|
 |BATCH_SIZE|Training batch size|6|
 |LEARNING_RATE|Adam learning rate|0.0001|
 |NUM_EPOCHS|Maximum training epochs|30|
@@ -844,7 +844,7 @@ Before starting an experiment, manually check:
 Supported model names are: MODEL_TYPE = "baseline"/"attention"/"residual"/"residual_attention"("/" = or, select one of valid option)
 *(Only one MODEL_TYPE assignment should be active at a time.)*
 
-For the architectural comparisons, use: DATA_ROOT = "ce"/"weighted_ce"
+For the architectural comparisons, use: DATA_ROOT = "ce"
 
 For the additional class-weighted experiment, use : MODEL_TYPE = "residual"  LOSS_TYPE = "weighted_ce"
 
@@ -853,8 +853,8 @@ The weighted-loss experiment uses the same Residual U-Net architecture and chang
 **Important: Full Training vs. Debugging Mode**
 
 The training loop contains an optional debugging limit:
-   if batch_idx >= MAX_BATCHES:
-      break
+   `if batch_idx >= MAX_BATCHES:`
+      `break`
 **These lines must remain commented out for the full-dataset experiments reported in this README.**
 
 If uncommented, the break statement limits the number of training batches processed in each epoch. This may be useful for checking whether the training pipeline executes correctly, but it does not reproduce the full training experiments.
